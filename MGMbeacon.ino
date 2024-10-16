@@ -16,6 +16,9 @@
     Bo, OZ2M, www.rudius.net/oz2m/pi4ino
 
   Author: Dawid SQ6EMM, February 2024
+
+  To be considered for frequency allocation:
+  http://www.g4jnt.com/JT4G_Tone_freqs.pdf
 */
 
 
