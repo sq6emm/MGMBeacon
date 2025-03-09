@@ -19,26 +19,41 @@
 
   To be considered for frequency allocation:
   http://www.g4jnt.com/JT4G_Tone_freqs.pdf
+
+  Arduino NANO ESP32 pins used:
+
+  CLK - D13
+  DATA - D11
+  LE - D10
+  GPS RX - TBD
+
+  Legnica: JO81CE58CD
 */
 
 
 #include <ADF4157.h>
 #include <JTEncode.h>
 
-const byte deviceUpdate = 32;          // The Ardunio pin where the device update is controlled, if used
+const byte deviceUpdate = D10;          // The Ardunio pin where the device update is controlled, if used
 ADF4157 Device(deviceUpdate);
 
 
 // Frequencies definition
-#define carrier 10368785000.0                       // CW carrier / Mark frequency
-#define cwSpaceShift 800.0                         // CW space shift down, -400Hz for uWaves -250 for VHF
+// SR6LEG #define carrier   1296805000.0 freqMulti 1
+// #define carrier   1296830000.0 // SR6LB 23cm freqMulti 1
+// #define carrier 10368830000.0 // SR6LB 3cm freqMulti 4
+#define carrier 432830000.0 // SR6LB 1.2 cm freqMulti 0.5
+
+#define cwSpaceShift 400.0                          // CW space shift down, -400Hz for uWaves -250 for VHF
 
 // Multiplier used? For high microwaves like x4...
-#define freqMulti 4                                 // Multiplier factor default 1 or others
+#define freqMulti 0.5                              // Multiplier factor default 1 or others
 
 // CW Frequencies definitions
 #define cwMark carrier/freqMulti                    // The CW mark or carrier tone 
-#define cwSpace (carrier-cwSpaceShift)/freqMulti    // The CW space or "no carrier" tone (-400Hz from carrier)                       
+#define cwSpace (carrier-cwSpaceShift)/freqMulti    // The CW space or "no carrier" tone (-400Hz from carrier)
+
+#define digiMark cwMark                             // If needed adjust to make sure that CW and DIGI can be decoded from USB in wsjt-x
 
 // GPS settings
 int gpsDelayComp = 0;
@@ -48,12 +63,17 @@ unsigned int gpsCheckTimeout = 60;  // GPS check timeout in seconds
 unsigned int current_minute = 0; // current minute
 
 // Messages for CW or JT modes
-char call[] = "SR6LB SR6LB ";                              // The CW callsign
-char locator[] = "LOC JO81CJ JO81CJ";                          // The CW locator
+// CW single words only!
+char call[] = "SR6LB";                              // The CW callsign
+char locatorPref[] = "LOC";                       // The CW locator Prefix
+char locator[] = "JO70SS";                       // The CW locator
 char cwnogps[] = "VVVVVVVVVV";                        // When there is no GPS fix add this characters to transmission
-const char jtmessage[] = "SR6LB JO81CJ";            // The JT message
+
+
+const char jtmessage[] = "SR6LB JO70SS";            // The JT message
 byte callLength;
 byte locatorLength;
+byte locatorPrefLength;
 byte cwnogpsLength;
 
 // Mode defines
@@ -85,12 +105,12 @@ void encode()
   for(i = 0; i < symbol_count; i++)
   {
     // transmitting is happening here
-    Device.SetFrequency((cwMark) + (tx_buffer[i] * tone_spacing));
+    Device.SetFrequency((digiMark) + (tx_buffer[i] * tone_spacing));
     delay(tone_delay);
   }
 
   // Turn off the output
-  Device.SetFrequency(cwMark);
+  Device.SetFrequency(digiMark);
 }
 
 void set_tx_buffer()
@@ -111,25 +131,28 @@ void set_tx_buffer()
 }
 
 byte WaitUntil59(const byte theSecond, const int theDelay, const unsigned int theTimeout) {
-  Serial1.begin(9600);
+  Serial0.begin(9600);
   boolean found = false;
   String r;
   unsigned int current_second = 0;
   unsigned int minute = 0;
   unsigned long checkStart = millis();
   unsigned int internalTimeout = theTimeout * 1000;
-  digitalWrite(LED_BUILTIN, LOW);  // Turn GPS valid off before checking status
 
   while (current_second != theSecond) {
     if (millis() - checkStart > internalTimeout) { break; }  // stop if timeout reached
-    if (Serial1.available() > 0) {
-      r = Serial1.readStringUntil('\n');
+    if (Serial0.available() > 0) {
+      r = Serial0.readStringUntil('\n');
       if (r.startsWith("$GPRMC")) {
         if (r.charAt(17) == 'A') {
-          digitalWrite(LED_BUILTIN, HIGH);  // Turn GPS status on
+          digitalWrite(LED_GREEN, LOW);
+          digitalWrite(LED_RED, HIGH);
+          digitalWrite(LED_BLUE, HIGH);  // Turn GPS status on
           checkStart = millis();
         } else {
-          digitalWrite(LED_BUILTIN, LOW);  // Turn GPS status on
+          digitalWrite(LED_RED, HIGH);
+          digitalWrite(LED_GREEN, HIGH);
+          digitalWrite(LED_BLUE, LOW);   // Turn GPS status on
         }
         current_second = r.substring(11, 13).toInt();
         current_minute = (r.substring(8, 11).toInt() + 1)%2;
@@ -141,7 +164,7 @@ byte WaitUntil59(const byte theSecond, const int theDelay, const unsigned int th
       }
     }
   }
-  Serial1.end();
+  Serial0.end();
   return found;
 }
 
@@ -173,7 +196,7 @@ void SendMorse(const char *info, const byte msgLen)
         for (j = 0; j < morseLength; j++)
         {
             Device.SetFrequency(cwMark);
-     //       digitalWrite(ledTX, HIGH);              // Turn TX LED on
+            // digitalWrite(LED_BUILTIN, HIGH);              // Turn TX LED on
 
             if ((morse & 0x80) == 0x80)             // If MSB 0 = dot, 1 = dash,
                 delay(300);                         // It is a dash, so wait 3 dot durations
@@ -181,7 +204,7 @@ void SendMorse(const char *info, const byte msgLen)
                 delay(100);                         // It is a dot, so wait 1 dot duration
 
             Device.SetFrequency(cwSpace);
-       //     digitalWrite(ledTX, LOW);               // Turn TX LED off
+            // digitalWrite(LED_BUILTIN, LOW);               // Turn TX LED off
             delay(100);
             morse = morse << 1;                     // Point to next bit
         }
@@ -198,6 +221,10 @@ void setup() {
   Serial.println();
   Serial.println("Started...");
   pinMode(LED_BUILTIN, OUTPUT); // set builtin LED
+  pinMode(LED_RED, OUTPUT);
+  pinMode(LED_GREEN, OUTPUT);
+  pinMode(LED_BLUE, OUTPUT);
+  digitalWrite(LED_RED, LOW);
   Device.Initialize(cwMark);
 
   if (gpsDataDelay > 0)                           // Calc the GPS compensation delay and second
@@ -261,24 +288,35 @@ void loop() {
     Device.SetFrequency(cwSpace);
     delay(500);
     SendMorse(call, callLength); // send callsing in CW
-    delay(1000);
+    delay(500);
+    SendMorse(call, callLength); // send callsing in CW
+    delay(500);
+    SendMorse(locatorPref, locatorPrefLength);
+    delay(500);
     SendMorse(locator, locatorLength);
-    Device.SetFrequency(cwSpace);
+    delay(500);
+    SendMorse(locator, locatorLength);
     delay(1000);
     Device.SetFrequency(cwMark); // send locator in CW
     delay(15000);
   } else {
     Device.SetFrequency(cwSpace);
+    delay(1000);
+    SendMorse(cwnogps, cwnogpsLength); // send nogps marker in CW
+    delay(500);
+    SendMorse(call, callLength); // send callsing in CW
+    delay(500);
+    SendMorse(call, callLength); // send callsing in CW
+    delay(500);
+    SendMorse(locatorPref, locatorPrefLength);
+    delay(500);
+    SendMorse(locator, locatorLength);
+    delay(500);
+    SendMorse(locator, locatorLength);
     delay(500);
     SendMorse(cwnogps, cwnogpsLength); // send nogps marker in CW
-    delay(1000);
-    SendMorse(call, callLength); // send callsing in CW
-    delay(1000);
-    SendMorse(locator, locatorLength);
-    delay(1000);
-    SendMorse(cwnogps, cwnogpsLength); // send nogps marker in CW
-    delay(1000);
+    delay(500);
     Device.SetFrequency(cwMark); // send locator in CW
     delay(2000);
-  }
+   }
 }
