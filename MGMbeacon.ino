@@ -25,7 +25,7 @@
   CLK - D13
   DATA - D11
   LE - D10
-  GPS RX - TBD
+  GPS RX - RX0
 
   Legnica: JO81CE58CD
 */
@@ -39,15 +39,15 @@ ADF4157 Device(deviceUpdate);
 
 
 // Frequencies definition
-// SR6LEG #define carrier   1296805000.0 freqMulti 1
+#define carrier   1296805000.0 // SR6LEG freqMulti 1 
 // #define carrier   1296830000.0 // SR6LB 23cm freqMulti 1
 // #define carrier 10368830000.0 // SR6LB 3cm freqMulti 4
-#define carrier 432830000.0 // SR6LB 1.2 cm freqMulti 0.5
+// #define carrier 432830000.0 // SR6LB 1.2 cm freqMulti 0.5
 
 #define cwSpaceShift 400.0                          // CW space shift down, -400Hz for uWaves -250 for VHF
 
 // Multiplier used? For high microwaves like x4...
-#define freqMulti 0.5                              // Multiplier factor default 1 or others
+#define freqMulti 1                              // Multiplier factor default 1 or others
 
 // CW Frequencies definitions
 #define cwMark carrier/freqMulti                    // The CW mark or carrier tone 
@@ -147,12 +147,13 @@ byte WaitUntil59(const byte theSecond, const int theDelay, const unsigned int th
         if (r.charAt(17) == 'A') {
           digitalWrite(LED_GREEN, LOW);
           digitalWrite(LED_RED, HIGH);
-          digitalWrite(LED_BLUE, HIGH);  // Turn GPS status on
+          digitalWrite(LED_BLUE, HIGH);  // LED color: Green
           checkStart = millis();
         } else {
           digitalWrite(LED_RED, HIGH);
           digitalWrite(LED_GREEN, HIGH);
-          digitalWrite(LED_BLUE, LOW);   // Turn GPS status on
+          digitalWrite(LED_BLUE, LOW);   // LED color: Blue
+          break;
         }
         current_second = r.substring(11, 13).toInt();
         current_minute = (r.substring(8, 11).toInt() + 1)%2;
