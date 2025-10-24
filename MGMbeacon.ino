@@ -342,7 +342,7 @@ void TransmissionCode(void *pvParameters) {
       cw.sendMessage(cwPrefixWhenNoTime);
       cw.sendMessage(cwTextWhenTimeIsValid);
       Device.SetFrequency(mark);
-      delay(5000); // give at least 20secs of carrier
+      delay(20000); // give at least 20secs of carrier
     }
     vTaskDelay(xDelay);         // END OF EXECUTION THREAD
   }
