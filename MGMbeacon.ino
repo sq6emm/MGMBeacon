@@ -61,8 +61,11 @@ ADF4157 Device(deviceUpdate);
 //const char jtmessage[] = "B SR6LEG JO81"; // SR6LEG
 //const uint8_t q65_symbols[85] = { 0,10,53,5,51,1,35,61,0,61,56,0,0,57,0,3,1,1,45,47,29,0,0,29,4,0,0,4,60,30,36,51,0,4,0,64,10,0,10,52,34,34,28,24,22,0,48,14,57,0,32,32,32,14,0,54,2,2,6,0,26,0,52,1,61,0,56,41,0,41,41,26,48,0,39,0,22,22,13,1,56,56,10,16,0 }; // SR6LEG
 
-#define carrier   1296830000.0 // SR6LB 23cm
-#define freqMulti 1  // SR6LB 23cm
+#define carrier   1296790000.0 // TEST 23cm
+#define freqMulti 1  // TEST 23cm
+
+//#define carrier   1296830000.0 // SR6LB 23cm
+//#define freqMulti 1  // SR6LB 23cm
 //#define carrier 10368830000.0 // SR6LB 3cm
 //#define freqMulti 4  // SR6LB 3cm
 //#define carrier 432830000.0 // SR6LB 1.2cm
@@ -165,12 +168,11 @@ bool GPSFrameAnalysis(String frame) { // GPS Frame analysis
   // 2 - (A = data valid, V = data invalid)
   // 9 - date ddmmyy
 
+  const char *p = frame.c_str();
+  uint8_t frameValid = 0;  // reset the validation of the GPS frame
+
+  if (nmea_checksum(p) != nmea_get_checksum(p)) { return false; }
   if (frame.startsWith("$GPRMC,")) {
-    uint8_t frameValid = 0;  // reset the validation of the GPS frame
-    const char *p = frame.c_str();
-
-    if (nmea_checksum(p) != nmea_get_checksum(p)) { return false; }
-
     uint8_t i = 0;
     while (*p) {
       if (*p == ',') {
@@ -194,9 +196,9 @@ bool GPSFrameAnalysis(String frame) { // GPS Frame analysis
       }
       p++;
     }
-    
-    if (frameValid == 3) { return true; } else { return false; };
+  if (frameValid == 3) { return true; } else { return false; };
   }
+  return false;
 } // GPS Frame analysis
 
 void TimeStatus() { // Time Status validation logic
@@ -292,7 +294,7 @@ void TimingCode(void *pvParameters) {
     if (Serial0.available() > 0) {
       serialLastUpdate = millis(); // last incoming data from Serial
       r = Serial0.readStringUntil('\n');
-      Serial.println(r);  // DEBUG: always show input data to Serial
+      // Serial.println(r);  // DEBUG: always show input data to Serial
       if (GPSFrameAnalysis(r)) {
         gpsFrame = true;
         rtc.setTime(s, m, h, d, mm, 2000 + y);  // set local RTC
