@@ -38,18 +38,13 @@
 #include <ESP32Time.h>
 #include "CWLibrary.hpp"
 #include <JTEncode.h>
-#include <DS3231.h>
-#include <Wire.h>
 
 TaskHandle_t Timing;
 TaskHandle_t Transmission;
 const TickType_t xDelay = (10 / portTICK_PERIOD_MS);
 
 // Initialize all vars related to RTC Library
-DS3231 rtc;  // with 0 seconds of offset meaning UTC time is used
-bool century = false;
-bool h12Flag;
-bool pmFlag;
+ESP32Time rtc(0);  // with 0 seconds of offset meaning UTC time is used
 unsigned long rtcLastUpdate = 0;
 #define rtcLastUpdateTimeoutms 86400000 // 86400000 // How many seconds we consider the time in local RTC to be valid (24 hrs by default)
 uint8_t h, m, s, d, mm, y, crc;
@@ -264,32 +259,12 @@ void jt4_set_tx_buffer()
   jtencode.jt4_encode(jtmessage, jt4_tx_buffer);
 }
 
-void SerialPrintTime() {
-  Serial.print("UTC: ");
-  Serial.print("20");
-  Serial.print(rtc.getYear(), DEC);
-  Serial.print("-");
-  Serial.print(rtc.getMonth(century), DEC);
-  Serial.print("-");
-  Serial.print(rtc.getDate(), DEC);
-  Serial.print(" ");
-  Serial.print(rtc.getHour(h12Flag, pmFlag), DEC); //24-hr
-  Serial.print(":");
-  Serial.print(rtc.getMinute(), DEC);
-  Serial.print(":");
-  Serial.println(rtc.getSecond(), DEC);
-}
-
 // END of Custom Code Functions
 
 void setup() {
   // Initialize Serial ports for comminication and time source
   Serial.begin(115200);
   Serial0.begin(9600);
-  Wire.begin();
-
-  // Initializa DS3131
-  rtc.setClockMode(false); // 24hour clock
 
   // Initialize RGB LED for status updates
   pinMode(LED_BUILTIN, OUTPUT);  // set builtin LED
@@ -322,16 +297,9 @@ void TimingCode(void *pvParameters) {
       // Serial.println(r);  // DEBUG: always show input data to Serial
       if (GPSFrameAnalysis(r)) {
         gpsFrame = true;
-        // rtc.setTime(s, m, h, d, mm, 2000 + y);  // set local RTC
-        rtc.setSecond(s);
-        rtc.setMinute(m);
-        rtc.setHour(h);
-        rtc.setDate(d);
-        rtc.setMonth(mm);
-        rtc.setYear(y);
-
+        rtc.setTime(s, m, h, d, mm, 2000 + y);  // set local RTC
         rtcLastUpdate = millis();  // last RTC update      
-        SerialPrintTime();
+        Serial.println(rtc.getTime("%Y-%m-%d %H:%M:%S"));
       }
       TimeStatus();
     } else {
@@ -340,7 +308,7 @@ void TimingCode(void *pvParameters) {
         TimeStatus();
         if ((millis() - humanLastUpdateTimeoutms) > humanLastUpdate) {
           Serial.println("No serial data");
-          if (timeState == true) { SerialPrintTime(); };
+          if (timeState == true) { Serial.println(rtc.getTime("%Y-%m-%d %H:%M:%S")); };
           humanLastUpdate = millis();
         }
       }
@@ -366,7 +334,7 @@ void TransmissionCode(void *pvParameters) {
           Device.SetFrequency(mark);
         }
       } else if (rtc.getMinute()%2 == 1 ) {
-        if (rtc.getDate() == 31 && rtc.getMonth(century) == 12 ) {
+        if (rtc.getDay() == 31 && rtc.getMonth() == 12 ) {
           cw.sendMessage(cwPrefixHNY);
         }
         cw.sendMessage(cwTextWhenTimeIsValid);
