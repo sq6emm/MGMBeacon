@@ -54,25 +54,40 @@ bool timeState = false;
 const byte deviceUpdate = D10;  // The Ardunio pin where the device update is controlled, if used
 ADF4157 Device(deviceUpdate);
 
+// PER BEACON VARS
+
+// #define nmeaBaudrate 9600 // for GPS
+#define nmeaBaudrate 115200 // for eCzasPL receiver
+
 // Basic Frequencies and messages definitions
+
+// SR6LEG
 //#define carrier 1296805000.0  // SR6LEG 23cm
 //#define freqMulti 1  // SR6LEG 23cm
 //char cwTextWhenTimeIsValid[] = "SR6LEG SR6LEG LOC JO81CE JO81CE "; // SR6LEG
 //const char jtmessage[] = "B SR6LEG JO81"; // SR6LEG
 //const uint8_t q65_symbols[85] = { 0,10,53,5,51,1,35,61,0,61,56,0,0,57,0,3,1,1,45,47,29,0,0,29,4,0,0,4,60,30,36,51,0,4,0,64,10,0,10,52,34,34,28,24,22,0,48,14,57,0,32,32,32,14,0,54,2,2,6,0,26,0,52,1,61,0,56,41,0,41,41,26,48,0,39,0,22,22,13,1,56,56,10,16,0 }; // SR6LEG
+// SR6LEG
 
+// TEST
 #define carrier   1296790000.0 // TEST 23cm
 #define freqMulti 1  // TEST 23cm
+// TEST
 
+// SR6LB
 //#define carrier   1296830000.0 // SR6LB 23cm
 //#define freqMulti 1  // SR6LB 23cm
 //#define carrier 10368830000.0 // SR6LB 3cm
 //#define freqMulti 4  // SR6LB 3cm
 //#define carrier 432830000.0 // SR6LB 1.2cm
 //#define freqMulti 0.5  // SR6LB 1.2cm
+
 char cwTextWhenTimeIsValid[] = "SR6LB SR6LB LOC JO70SS JO70SS "; // SR6LB
 const char jtmessage[] = "B SR6LB JO70"; // SR6LB
 const uint8_t q65_symbols[85] = { 0,1,15,62,5,16,17,4,0,44,4,0,0,47,0,50,43,1,36,63,59,0,0,54,44,0,0,44,6,19,6,14,0,14,0,39,54,0,37,5,58,58,38,44,27,0,43,59,42,0,19,19,36,31,0,31,17,59,8,0,17,0,31,7,6,0,30,13,0,13,40,10,14,0,14,0,4,62,56,47,46,62,56,41,0 }; // SR6LB
+// SR6LB
+
+// END OF PER BEACON VARS
 
 char cwPrefixWhenNoTime[] = "VVVVV ";
 char cwPrefixHNY[] = "HNY HNY ";
@@ -264,7 +279,7 @@ void jt4_set_tx_buffer()
 void setup() {
   // Initialize Serial ports for comminication and time source
   Serial.begin(115200);
-  Serial0.begin(9600);
+  Serial0.begin(nmeaBaudrate);
 
   // Initialize RGB LED for status updates
   pinMode(LED_BUILTIN, OUTPUT);  // set builtin LED
