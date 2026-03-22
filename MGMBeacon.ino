@@ -7,7 +7,7 @@
   odd minute CW WPM12 (15 secs) + carrier (~45 secs)
 
   if no GPS time is detected in 60sec, beacon will transmit
-  NOTIME then standard CW WPM12 message and NOTIME again
+  NOTIME then standard CW WPM12 message
 
   Based on PI4Ino by Bo OZ2M, thanks!
 
@@ -341,17 +341,17 @@ void TransmissionCode(void *pvParameters) {
   while (1) {
     Device.Initialize(mark);
     if (timeState) {
-      // PLAY CW + DIGI
+      // PLAY CW + Q65 + JT4 and again
       do { delay(500); } while (rtc.getSecond() != 0);
       if (rtc.getMinute() % 2 == 0) {
-        if (rtc.getMinute() / 2 % 2 == 0) {
+        if (rtc.getMinute() / 2 % 2 == 0) { // minutes 0, 4, 8, 12, ...
           jt4_sendMessage();
           Device.SetFrequency(mark);
-        } else {
+        } else { // minutes 2, 6, 10, 14, ...
           q65_sendMessage();  // send Q65 message
           Device.SetFrequency(mark);
         }
-      } else if (rtc.getMinute() % 2 == 1) {
+      } else if (rtc.getMinute() % 2 == 1) { // all odd minutes 1,3,5,7,9,...
         if (rtc.getDay() == 31 && rtc.getMonth() == 12) {
           cw.sendMessage(cwPrefixHNY);
         }
