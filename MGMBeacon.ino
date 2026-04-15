@@ -203,7 +203,7 @@ bool nmeaFrameAnalysis(String frame) {  // NMEA Frame analysis
   uint8_t frameValid = 0;  // reset the validation of the NMEA Frame
 
   if (nmea_checksum(p) != nmea_get_checksum(p)) { return false; }
-  if (frame.startsWith("$GPRMC,")) {
+  if (frame.startsWith("$GPRMC,") || frame.startsWith("$GNRMC,")) {
     uint8_t i = 0;
     while (*p) {
       if (*p == ',') {
