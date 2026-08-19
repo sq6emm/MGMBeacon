@@ -15,6 +15,7 @@
     Bo, OZ2M, www.rudius.net/oz2m/pi4ino
   
   Q65 code based on work done by Thomas LA3PNA, thanks!
+  q65_code "DE CALL LOC"
 
   Author: Dawid SQ6EMM, February 2024-2025
   Contributor: Tomek SQ6QV
@@ -64,8 +65,8 @@ ADF4157 Device(deviceUpdate);
 //#define carrier 1296805000.0  // SR6LEG 23cm
 //#define freqMulti 1  // SR6LEG 23cm
 //char cwTextWhenTimeIsValid[] = "SR6LEG SR6LEG LOC JO81CE JO81CE ";
-//const char jtmessage[] = "B SR6LEG JO81";
-//const uint8_t q65_symbols[85] = { 0,10,53,5,51,1,35,61,0,61,56,0,0,57,0,3,1,1,45,47,29,0,0,29,4,0,0,4,60,30,36,51,0,4,0,64,10,0,10,52,34,34,28,24,22,0,48,14,57,0,32,32,32,14,0,54,2,2,6,0,26,0,52,1,61,0,56,41,0,41,41,26,48,0,39,0,22,22,13,1,56,56,10,16,0 }; // SR6LEG
+//const char jtmessage[] = "DE SR6LEG JO81";
+//const uint8_t q65_symbols[85] = { 0, 1, 1, 1, 1, 2, 40, 37, 0, 7, 55, 0, 0, 50, 0, 6, 5, 19, 51, 51, 51, 0, 0, 52, 39, 0, 0, 33, 18, 45, 13, 63, 0, 63, 0, 57, 57, 0, 47, 54, 50, 40, 57, 57, 62, 0, 6, 35, 35, 0, 62, 48, 25, 33, 0, 33, 33, 37, 37, 0, 30, 0, 21, 2, 38, 0, 9, 64, 0, 62, 61, 61, 49, 0, 49, 0, 46, 28, 19, 39, 17, 4, 4, 57, 0 }; // SR6LEG
 // SR6LEG
 
 // TEST
@@ -82,8 +83,8 @@ ADF4157 Device(deviceUpdate);
 //#define freqMulti 0.5  // SR6LB 1.2cm
 
 //char cwTextWhenTimeIsValid[] = "SR6LB SR6LB LOC JO70SS JO70SS ";
-//const char jtmessage[] = "B SR6LB JO70";
-//const uint8_t q65_symbols[85] = { 0, 1, 15, 62, 5, 16, 17, 4, 0, 44, 4, 0, 0, 47, 0, 50, 43, 1, 36, 63, 59, 0, 0, 54, 44, 0, 0, 44, 6, 19, 6, 14, 0, 14, 0, 39, 54, 0, 37, 5, 58, 58, 38, 44, 27, 0, 43, 59, 42, 0, 19, 19, 36, 31, 0, 31, 17, 59, 8, 0, 17, 0, 31, 7, 6, 0, 30, 13, 0, 13, 40, 10, 14, 0, 14, 0, 4, 62, 56, 47, 46, 62, 56, 41, 0 };  // SR6LB
+//const char jtmessage[] = "DE SR6LB JO70";
+//const uint8_t q65_symbols[85] = { 0, 1, 1, 1, 1, 2, 40, 37, 0, 7, 44, 0, 0, 50, 0, 6, 2, 35, 48, 48, 48, 0, 0, 47, 45, 0, 0, 14, 61, 34, 2, 52, 0, 52, 0, 54, 54, 0, 18, 38, 34, 62, 35, 35, 40, 0, 32, 57, 57, 0, 13, 47, 26, 5, 0, 5, 5, 6, 6, 0, 61, 0, 41, 62, 26, 0, 3, 54, 0, 43, 28, 28, 24, 0, 24, 0, 11, 61, 54, 61, 24, 4, 4, 57, 0 };  // SR6LB
 // SR6LB
 
 // SR3LES
@@ -95,8 +96,8 @@ ADF4157 Device(deviceUpdate);
 //#define freqMulti 4  // SR3LES 3cm
 
 char cwTextWhenTimeIsValid[] = "SR3LES SR3LES LOC JO81HU JO81HU ";
-const char jtmessage[] = "B SR3LES JO81";
-const uint8_t q65_symbols[85] = { 0, 10, 53, 5, 50, 52, 22, 38, 0, 54, 41, 0, 0, 29, 0, 39, 1, 1, 26, 28, 43, 0, 0, 26, 6, 0, 0, 6, 26, 63, 15, 38, 0, 21, 0, 34, 24, 0, 24, 4, 11, 11, 33, 10, 48, 0, 3, 24, 35, 0, 13, 13, 61, 29, 0, 37, 17, 17, 21, 0, 27, 0, 39, 25, 62, 0, 11, 54, 0, 54, 54, 5, 32, 0, 23, 0, 37, 40, 1, 28, 52, 52, 44, 37, 0 }; // SR3LES
+const char jtmessage[] = "SR3LES JO81";
+const uint8_t q65_symbols[85] = { 0, 1, 1, 1, 1, 2, 40, 35, 0, 20, 36, 0, 0, 10, 0, 6, 5, 19, 10, 10, 10, 0, 0, 9, 26, 0, 0, 32, 23, 48, 16, 62, 0, 62, 0, 47, 47, 0, 57, 9, 31, 9, 48, 48, 43, 0, 50, 23, 23, 0, 45, 63, 10, 12, 0, 12, 12, 16, 16, 0, 43, 0, 57, 46, 16, 0, 61, 42, 0, 44, 43, 43, 17, 0, 17, 0, 14, 60, 39, 14, 47, 62, 62, 57, 0 };
 // SR3LES
 
 // END OF PER BEACON VARS
@@ -356,14 +357,10 @@ void TransmissionCode(void *pvParameters) {
     if (timeState) {
       // PLAY CW + Q65 + JT4 and again
       do { delay(500); } while (rtc.getSecond() != 0);
-      if (rtc.getMinute() % 2 == 0) {
-        if (rtc.getMinute() / 2 % 2 == 0) { // minutes 0, 4, 8, 12, ...
-          jt4_sendMessage();
-          Device.SetFrequency(mark);
-        } else { // minutes 2, 6, 10, 14, ...
-          q65_sendMessage();  // send Q65 message
-          Device.SetFrequency(mark);
-        }
+      if (rtc.getMinute() % 2 == 0) { // all even minutes, 0,2,4,6,8,...
+        q65_sendMessage();  // send Q65 message
+        // jt4_sendMessage(); // send JT4 message (to be selected by user)
+        Device.SetFrequency(mark);
       } else if (rtc.getMinute() % 2 == 1) { // all odd minutes 1,3,5,7,9,...
         if (rtc.getDay() == 31 && rtc.getMonth() == 12) {
           cw.sendMessage(cwPrefixHNY);
