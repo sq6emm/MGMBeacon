@@ -68,16 +68,26 @@ ADF4157 Device(deviceUpdate);
 
 // Basic Frequencies and messages definitions
 
-// Each profile defines only CALLSIGN and a 6-character LOCATOR; every
-// on-air message (CW, Q65/wsjtmessage, PI4, JT4) is generated from these
-// two at boot by buildMessages() below, respecting each mode's own
-// length/alphabet limits, so there's one place to change per beacon.
+// Each profile defines CALLSIGN, a 6-character LOCATOR, and which digital
+// mode the even-minute slot transmits (digitalMode); every on-air message
+// (CW, Q65/wsjtmessage, PI4, JT4) is generated from CALLSIGN+LOCATOR at
+// boot by buildMessages() below, respecting each mode's own length/alphabet
+// limits, so there's one place to change per beacon. digitalMode options:
+//   Q65Submode(Q65::Duration::T15,  Q65::Bandwidth::A..E)  -- Q65-15A..15E
+//   Q65Submode(Q65::Duration::T30,  Q65::Bandwidth::A..E)  -- Q65-30A..30E
+//   Q65Submode(Q65::Duration::T60,  Q65::Bandwidth::A..E)  -- Q65-60A..60E  (this beacon's previous default: 60D)
+//   Q65Submode(Q65::Duration::T120, Q65::Bandwidth::A..E)  -- Q65-120A..120E
+//   Q65Submode(Q65::Duration::T300, Q65::Bandwidth::A..E)  -- Q65-300A..300E
+//   JT4Submode(JT4::Submode::A..G)                         -- JT4A..JT4G (this beacon's previous default: JT4G)
+//   PI4Submode()                                           -- PI4
+//   CWSubmode(wpm, spaceShiftHz)                            -- CW at a different speed/shift than cwSubmode below
 
 // SR6LEG
 //#define carrier 1296805000.0  // SR6LEG 23cm
 //#define freqMulti 1  // SR6LEG 23cm
 //#define CALLSIGN "SR6LEG"
 //#define LOCATOR  "JO81CE"  // full: JO81CE58CD
+//const DigitalMode digitalMode = Q65Submode(Q65::Duration::T60, Q65::Bandwidth::D); // Q65-60D
 // SR6LEG
 
 // TEST
@@ -95,6 +105,7 @@ ADF4157 Device(deviceUpdate);
 
 //#define CALLSIGN "SR6LB"
 //#define LOCATOR  "JO70SS"  // full: JO70SS66UX
+//const DigitalMode digitalMode = Q65Submode(Q65::Duration::T60, Q65::Bandwidth::D); // Q65-60D
 // SR6LB
 
 // SR3LES
@@ -107,6 +118,7 @@ ADF4157 Device(deviceUpdate);
 
 #define CALLSIGN "SR3LES"
 #define LOCATOR  "JO81HU"
+const DigitalMode digitalMode = Q65Submode(Q65::Duration::T60, Q65::Bandwidth::D); // Q65-60D
 // SR3LES
 
 // END OF PER BEACON VARS
@@ -129,6 +141,20 @@ void buildMessages() {
   snprintf(wsjtmessage, sizeof(wsjtmessage), "DE %s %s", CALLSIGN, locator4);
   snprintf(pi4Message, sizeof(pi4Message), "%s", CALLSIGN);
   snprintf(jt4Message, sizeof(jt4Message), "%s %s", CALLSIGN, locator4);
+}
+
+// Picks the message that matches digitalMode.mode -- each mode's message is
+// generated with that mode's own length/alphabet limits in mind (see
+// buildMessages() below), so this is what BeaconModes::transmit(digitalMode, ...)
+// should always be called with.
+const char *messageForDigitalMode() {
+  switch (digitalMode.mode) {
+    case BeaconMode::Q65: return wsjtmessage;
+    case BeaconMode::PI4: return pi4Message;
+    case BeaconMode::JT4: return jt4Message;
+    case BeaconMode::CW: return cwTextWhenTimeIsValid;
+  }
+  return wsjtmessage;
 }
 
 char cwPrefixWhenNoTime[] = "NOTIME ";
@@ -353,25 +379,9 @@ void TransmissionCode(void *pvParameters) {
       tm now = rtc.getTimeStruct();
 
       if (now.tm_min % 2 == 0) {  // all even minutes, 0,2,4,6,8,...
-        // Active: Q65-60D (this beacon's on-air default; Q65Submode{}
-        // already defaults to Duration::T60/Bandwidth::D, so this line is
-        // equivalent to the explicit Q65-60D example below).
-        BeaconModes::transmit(BeaconMode::Q65, wsjtmessage, mark, freqMulti, deviceSetFrequency);
-
-        // -- other modes, ready to swap in for this slot --
-        //
-        // Q65-60D, spelled out explicitly (identical to the active line above):
-        // BeaconModes::transmit(BeaconMode::Q65, wsjtmessage, mark, freqMulti, deviceSetFrequency,
-        //                        Q65Submode(Q65::Duration::T60, Q65::Bandwidth::D));
-        //
-        // PI4 (pi4Message is CALLSIGN alone -- PI4's 8-char/0-9A-Z/ cap has
-        // no room for a locator too):
-        // BeaconModes::transmit(BeaconMode::PI4, pi4Message, mark, freqMulti, deviceSetFrequency);
-        //
-        // JT4G (jt4Message is "CALLSIGN LOC4", 13 chars max; JT4Submode{}
-        // already defaults to Submode::G):
-        // BeaconModes::transmit(BeaconMode::JT4, jt4Message, mark, freqMulti, deviceSetFrequency);
-
+        // Which mode this transmits is decided once, per beacon profile,
+        // by digitalMode (see the PER BEACON VARS section above).
+        BeaconModes::transmit(digitalMode, messageForDigitalMode(), mark, freqMulti, deviceSetFrequency);
         Device.SetFrequency(mark);
       } else {  // all odd minutes 1,3,5,7,9,...
         if (now.tm_mday == 31 && now.tm_mon == 11) {  // tm_mon is 0-11, so December == 11
