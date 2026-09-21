@@ -69,11 +69,16 @@ ADF4157 Device(deviceUpdate);
 
 // Basic Frequencies and messages definitions
 
+// Each profile defines only CALLSIGN and a 6-character LOCATOR; every
+// on-air message (CW, Q65/wsjtmessage, PI4, JT4) is generated from these
+// two at boot by buildMessages() below, respecting each mode's own
+// length/alphabet limits, so there's one place to change per beacon.
+
 // SR6LEG
 //#define carrier 1296805000.0  // SR6LEG 23cm
 //#define freqMulti 1  // SR6LEG 23cm
-//char cwTextWhenTimeIsValid[] = "SR6LEG SR6LEG LOC JO81CE JO81CE ";
-//const char wsjtmessage[] = "DE SR6LEG JO81";
+//#define CALLSIGN "SR6LEG"
+//#define LOCATOR  "JO81CE"  // full: JO81CE58CD
 // SR6LEG
 
 // TEST
@@ -89,8 +94,8 @@ ADF4157 Device(deviceUpdate);
 //#define carrier 432830000.0 // SR6LB 1.2cm
 //#define freqMulti 0.5  // SR6LB 1.2cm
 
-//char cwTextWhenTimeIsValid[] = "SR6LB SR6LB LOC JO70SS JO70SS ";
-//const char wsjtmessage[] = "DE SR6LB JO70";
+//#define CALLSIGN "SR6LB"
+//#define LOCATOR  "JO70SS"  // full: JO70SS66UX
 // SR6LB
 
 // SR3LES
@@ -101,11 +106,31 @@ ADF4157 Device(deviceUpdate);
 //#define carrier 10368872000.0 // SR3LES 3cm
 //#define freqMulti 4  // SR3LES 3cm
 
-char cwTextWhenTimeIsValid[] = "SR3LES SR3LES LOC JO81HU JO81HU ";
-const char wsjtmessage[] = "DE SR3LES JO81";
+#define CALLSIGN "SR3LES"
+#define LOCATOR  "JO81HU"
 // SR3LES
 
 // END OF PER BEACON VARS
+
+// Message buffers, filled once by buildMessages() (called from setup()).
+// Sizes are generous relative to CALLSIGN/LOCATOR above; PI4's 8-char cap
+// and JT4's 13-char cap are the real constraints (enforced by their
+// encoders, not by these buffer sizes).
+char cwTextWhenTimeIsValid[40];  // "<CALL> <CALL> LOC <LOC6> <LOC6> "
+char wsjtmessage[32];            // "DE <CALL> <LOC4>" -- used for Q65
+char pi4Message[PI4::MAX_MESSAGE_LEN + 1];  // "<CALL>" -- PI4 has no room for a locator too
+char jt4Message[16];             // "<CALL> <LOC4>"
+
+void buildMessages() {
+  char locator4[5];
+  memcpy(locator4, LOCATOR, 4);  // LOCATOR is always >=4 chars; not a strncpy since we want exactly 4
+  locator4[4] = '\0';
+
+  snprintf(cwTextWhenTimeIsValid, sizeof(cwTextWhenTimeIsValid), "%s %s LOC %s %s ", CALLSIGN, CALLSIGN, LOCATOR, LOCATOR);
+  snprintf(wsjtmessage, sizeof(wsjtmessage), "DE %s %s", CALLSIGN, locator4);
+  snprintf(pi4Message, sizeof(pi4Message), "%s", CALLSIGN);
+  snprintf(jt4Message, sizeof(jt4Message), "%s %s", CALLSIGN, locator4);
+}
 
 char cwPrefixWhenNoTime[] = "NOTIME ";
 char cwPrefixHNY[] = "HNY HNY ";
@@ -144,12 +169,14 @@ void cwKeyUp() {
 }
 CWLibrary cw = CWLibrary(cwSpeedWPM, cwKeyDown, cwKeyUp);
 
-// Definitions related to Q65
-// Encoded once in setup() from wsjtmessage via the BeaconModes library
-// (see q65_sendMessage()) instead of being a hardcoded table.
-uint8_t q65_symbols[Q65::SYMBOL_COUNT];
-
 // Custom Code Functions
+
+// BeaconModes::transmit() takes a plain function pointer, but
+// Device.SetFrequency() is a member function -- this free-function wrapper
+// is what every mode's transmit() call below uses.
+void deviceSetFrequency(double freqHz) {
+  Device.SetFrequency(freqHz);
+}
 
 void ledState(uint8_t state) {  // set Color of the state Led
   digitalWrite(LED_BLUE, ((~state & 0x04) >> 2));
@@ -247,15 +274,6 @@ void TimeStatus() {  // Time Status validation logic
   }
 }  // Time Status validation logic
 
-void q65_sendMessage() {
-  const float spacing = BeaconModes::toneSpacingHz(BeaconMode::Q65, freqMulti);
-  const uint32_t periodMs = (uint32_t)(BeaconModes::symbolPeriodMs(BeaconMode::Q65) + 0.5f);
-  for (uint16_t i = 0; i < Q65::SYMBOL_COUNT; i++) {
-    Device.SetFrequency(mark + q65_symbols[i] * spacing);
-    delay(periodMs);
-  }
-}
-
 // END of Custom Code Functions
 
 void setup() {
@@ -278,8 +296,21 @@ void setup() {
   xTaskCreatePinnedToCore(TransmissionCode, "Transmission", 10000, NULL, 1, &Transmission, 1);
   delay(500);
 
-  if (!BeaconModes::encode(BeaconMode::Q65, wsjtmessage, q65_symbols)) {
+  buildMessages();  // derive cwTextWhenTimeIsValid/wsjtmessage/pi4Message/jt4Message from CALLSIGN+LOCATOR
+
+  // Validate at boot that every mode this beacon might transmit can encode
+  // its message -- BeaconModes::transmit() (used in TransmissionCode) would
+  // otherwise fail silently (no transmission) every cycle instead of once,
+  // loudly, here.
+  uint8_t scratch[BeaconModes::MAX_SYMBOLS];
+  if (!BeaconModes::encode(BeaconMode::Q65, wsjtmessage, scratch)) {
     Serial.println("Q65 encode of wsjtmessage FAILED -- check wsjtmessage format");
+  }
+  if (!BeaconModes::encode(BeaconMode::PI4, pi4Message, scratch)) {
+    Serial.println("PI4 encode of pi4Message FAILED -- check pi4Message format");
+  }
+  if (!BeaconModes::encode(BeaconMode::JT4, jt4Message, scratch)) {
+    Serial.println("JT4 encode of jt4Message FAILED -- check jt4Message format");
   }
 
   Device.Initialize(mark);
@@ -330,7 +361,25 @@ void TransmissionCode(void *pvParameters) {
       tm now = rtc.getTimeStruct();
 
       if (now.tm_min % 2 == 0) {  // all even minutes, 0,2,4,6,8,...
-        q65_sendMessage();  // send Q65 message
+        // Active: Q65-60D (this beacon's on-air default; Q65Submode{}
+        // already defaults to Duration::T60/Bandwidth::D, so this line is
+        // equivalent to the explicit Q65-60D example below).
+        BeaconModes::transmit(BeaconMode::Q65, wsjtmessage, mark, freqMulti, deviceSetFrequency);
+
+        // -- other modes, ready to swap in for this slot --
+        //
+        // Q65-60D, spelled out explicitly (identical to the active line above):
+        // BeaconModes::transmit(BeaconMode::Q65, wsjtmessage, mark, freqMulti, deviceSetFrequency,
+        //                        BeaconModes::Q65Submode{Q65::Duration::T60, Q65::Bandwidth::D});
+        //
+        // PI4 (pi4Message is CALLSIGN alone -- PI4's 8-char/0-9A-Z/ cap has
+        // no room for a locator too):
+        // BeaconModes::transmit(BeaconMode::PI4, pi4Message, mark, freqMulti, deviceSetFrequency);
+        //
+        // JT4G (jt4Message is "CALLSIGN LOC4", 13 chars max; JT4Submode{}
+        // already defaults to Submode::G):
+        // BeaconModes::transmit(BeaconMode::JT4, jt4Message, mark, freqMulti, deviceSetFrequency);
+
         Device.SetFrequency(mark);
       } else {  // all odd minutes 1,3,5,7,9,...
         if (now.tm_mday == 31 && now.tm_mon == 11) {  // tm_mon is 0-11, so December == 11
