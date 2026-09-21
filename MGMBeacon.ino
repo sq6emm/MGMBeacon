@@ -249,9 +249,10 @@ void TimeStatus() {  // Time Status validation logic
 
 void q65_sendMessage() {
   const float spacing = BeaconModes::toneSpacingHz(BeaconMode::Q65, freqMulti);
+  const uint32_t periodMs = (uint32_t)(BeaconModes::symbolPeriodMs(BeaconMode::Q65) + 0.5f);
   for (uint16_t i = 0; i < Q65::SYMBOL_COUNT; i++) {
     Device.SetFrequency(mark + q65_symbols[i] * spacing);
-    delay(Q65::SYMBOL_PERIOD_MS);
+    delay(periodMs);
   }
 }
 
