@@ -36,7 +36,6 @@
 
 #include <ADF4157.h>
 #include <ESP32Time.h>
-#include "CWLibrary.hpp"
 #include <BeaconModes.h>
 
 TaskHandle_t Timing;
@@ -136,9 +135,8 @@ char cwPrefixWhenNoTime[] = "NOTIME ";
 char cwPrefixHNY[] = "HNY HNY ";
 
 // Generic frequency definitions
-#define spaceShift 400.0
+#define spaceShift 400.0  // CW key-up tone offset below mark; see cwSubmode below
 #define mark (carrier / freqMulti)
-#define space ((carrier - spaceShift) / freqMulti)
 
 // Initialize vars related to NMEA sentence analysis
 const byte buff_len = 90;
@@ -158,16 +156,10 @@ unsigned long humanLastUpdate = 0;
 #define COLOR_BLUE 0x04
 #define COLOR_WHITE 0x07
 
-// Definitions related to CWLibrary
+// Definitions related to CW
 
 uint8_t cwSpeedWPM = 12;
-void cwKeyDown() {
-  Device.SetFrequency(mark);
-}
-void cwKeyUp() {
-  Device.SetFrequency(space);
-}
-CWLibrary cw = CWLibrary(cwSpeedWPM, cwKeyDown, cwKeyUp);
+const CWSubmode cwSubmode = { cwSpeedWPM, spaceShift };
 
 // Custom Code Functions
 
@@ -370,7 +362,7 @@ void TransmissionCode(void *pvParameters) {
         //
         // Q65-60D, spelled out explicitly (identical to the active line above):
         // BeaconModes::transmit(BeaconMode::Q65, wsjtmessage, mark, freqMulti, deviceSetFrequency,
-        //                        BeaconModes::Q65Submode{Q65::Duration::T60, Q65::Bandwidth::D});
+        //                        Q65Submode(Q65::Duration::T60, Q65::Bandwidth::D));
         //
         // PI4 (pi4Message is CALLSIGN alone -- PI4's 8-char/0-9A-Z/ cap has
         // no room for a locator too):
@@ -383,15 +375,15 @@ void TransmissionCode(void *pvParameters) {
         Device.SetFrequency(mark);
       } else {  // all odd minutes 1,3,5,7,9,...
         if (now.tm_mday == 31 && now.tm_mon == 11) {  // tm_mon is 0-11, so December == 11
-          cw.sendMessage(cwPrefixHNY);
+          BeaconModes::transmit(BeaconMode::CW, cwPrefixHNY, mark, freqMulti, deviceSetFrequency, {}, {}, cwSubmode);
         }
-        cw.sendMessage(cwTextWhenTimeIsValid);
+        BeaconModes::transmit(BeaconMode::CW, cwTextWhenTimeIsValid, mark, freqMulti, deviceSetFrequency, {}, {}, cwSubmode);
         Device.SetFrequency(mark);
       }
     } else {
       // PLAY CW only
-      cw.sendMessage(cwPrefixWhenNoTime);
-      cw.sendMessage(cwTextWhenTimeIsValid);
+      BeaconModes::transmit(BeaconMode::CW, cwPrefixWhenNoTime, mark, freqMulti, deviceSetFrequency, {}, {}, cwSubmode);
+      BeaconModes::transmit(BeaconMode::CW, cwTextWhenTimeIsValid, mark, freqMulti, deviceSetFrequency, {}, {}, cwSubmode);
       Device.SetFrequency(mark);
       delay(20000);  // give at least 20secs of carrier
     }
