@@ -37,13 +37,20 @@
 #include <ADF4157.h>
 #include <ESP32Time.h>
 #include "CWLibrary.hpp"
-#include <JTEncode.h>
 
 TaskHandle_t Timing;
 TaskHandle_t Transmission;
 const TickType_t xDelay = (10 / portTICK_PERIOD_MS);
 
 // Initialize all vars related to RTC Library
+// rtc is written on core 0 (TimingCode) and read on core 1 (TransmissionCode).
+// ESP-IDF's settimeofday()/gettimeofday() (which setTime()/getTimeStruct() call
+// into) already guard cross-core atomicity internally, so no extra locking is
+// needed here -- wrapping them in our own portENTER_CRITICAL would (and did,
+// when tried) panic the board, since those calls can internally block/take a
+// lock, which is illegal inside a critical section. A single getTimeStruct()
+// snapshot per read (see TransmissionCode) is enough to avoid torn reads
+// across the individual minute/day/month fields.
 ESP32Time rtc(0);  // with 0 seconds of offset meaning UTC time is used
 unsigned long rtcLastUpdate = 0;
 #define rtcLastUpdateTimeoutms 86400000  // 86400000 // How many seconds we consider the time in local RTC to be valid (24 hrs by default)
@@ -107,12 +114,12 @@ char cwPrefixHNY[] = "HNY HNY ";
 
 // Generic frequency definitions
 #define spaceShift 400.0
-#define mark carrier / freqMulti
-#define space (carrier - spaceShift) / freqMulti
+#define mark (carrier / freqMulti)
+#define space ((carrier - spaceShift) / freqMulti)
 
 // Initialize vars related to NMEA sentence analysis
 const byte buff_len = 90;
-char CRCbuffer[buff_len];
+char nmeaLineBuffer[buff_len];
 bool nmeaFrame = false;
 
 // Initialize vars related to communication with GPS or eCzasPL rx
@@ -146,18 +153,6 @@ const uint32_t CENTER = mark + (DF * 32);  // Hz (midt-tone = symbol 32)
 const uint16_t SYMBOL_MS = 600;            // 0,600 s per symbol
 const uint32_t SLOT_MS = 59900UL;          // 60 s T/R-period
 
-// Definitions related to JT4
-#define JT4_TONE_SPACING 315.0  // G 315.000 Hz (center around 1270Hz)
-#define JT4_DELAY 229           // Delay value for JT4A
-#define DEFAULT_MODE MODE_JT4
-enum mode { MODE_JT4 };
-uint8_t jt4_tx_buffer[255];
-enum mode cur_mode = DEFAULT_MODE;
-JTEncode jtencode;
-uint8_t jt4_symbol_count = JT4_SYMBOL_COUNT;  // From the library defines
-uint16_t jt4_tone_spacing = JT4_TONE_SPACING / freqMulti;
-uint16_t jt4_tone_delay = JT4_DELAY;
-
 // Custom Code Functions
 
 void ledState(uint8_t state) {  // set Color of the state Led
@@ -185,26 +180,26 @@ uint8_t nmea_get_checksum(const char *sentence) {  // NMEA get checksum from fra
 uint8_t nmea_checksum(const char *sentence) {  // NMEA calculate checksum based on frame
   const char *n = sentence + 1;
   uint8_t chk = 0;
-  while (('*' != *n) && ('\n' != *n) && ('\n' != *n) && ('\0' != *n)) {
+  while (('*' != *n) && ('\r' != *n) && ('\n' != *n) && ('\0' != *n)) {
     chk ^= (uint8_t)*n;
     n++;
   }
   return chk;
 }  // NMEA calculate checksum based on frame
 
-bool nmeaFrameAnalysis(String frame) {  // NMEA Frame analysis
-  // String frame="$GPRMC,092352.00,A,5112.02866,N,01612.54837,E,0.022,,231025,,,A*7C";
-  // String frame="$GPRMC,092352,V,5112.0286,N,01612.5483,E,0.02,,231025,,,A*7C";
+bool nmeaFrameAnalysis(const char *frame) {  // NMEA Frame analysis
+  // frame="$GPRMC,092352.00,A,5112.02866,N,01612.54837,E,0.022,,231025,,,A*7C";
+  // frame="$GPRMC,092352,V,5112.0286,N,01612.5483,E,0.02,,231025,,,A*7C";
   // 0 - $GPRMC
   // 1 - UTC of position HHMMSS
   // 2 - (A = data valid, V = data invalid)
   // 9 - date ddmmyy
 
-  const char *p = frame.c_str();
+  const char *p = frame;
   uint8_t frameValid = 0;  // reset the validation of the NMEA Frame
 
   if (nmea_checksum(p) != nmea_get_checksum(p)) { return false; }
-  if (frame.startsWith("$GPRMC,") || frame.startsWith("$GNRMC,")) {
+  if (strncmp(frame, "$GPRMC,", 7) == 0 || strncmp(frame, "$GNRMC,", 7) == 0) {
     uint8_t i = 0;
     while (*p) {
       if (*p == ',') {
@@ -273,24 +268,6 @@ void q65_sendMessage() {
   }
 }
 
-void jt4_sendMessage() {
-  uint8_t i;
-  for (i = 0; i < jt4_symbol_count; i++) {
-    // transmitting is happening here
-    Device.SetFrequency((mark) + (jt4_tx_buffer[i] * jt4_tone_spacing));
-    delay(jt4_tone_delay);
-  }
-  // Turn off the output
-  Device.SetFrequency(mark);
-}
-
-void jt4_set_tx_buffer() {
-  // Clear out the transmit buffer
-  memset(jt4_tx_buffer, 0, 255);
-  // Set the proper frequency and timer CTC depending on mode
-  jtencode.jt4_encode(jtmessage, jt4_tx_buffer);
-}
-
 // END of Custom Code Functions
 
 void setup() {
@@ -313,8 +290,6 @@ void setup() {
   xTaskCreatePinnedToCore(TransmissionCode, "Transmission", 10000, NULL, 1, &Transmission, 1);
   delay(500);
 
-  jt4_set_tx_buffer();  // encode JT message
-
   Device.Initialize(mark);
 }
 
@@ -322,12 +297,12 @@ void setup() {
 void TimingCode(void *pvParameters) {
 
   while (1) {
-    String r;
     if (Serial0.available() > 0) {
       serialLastUpdate = millis();  // last incoming data from Serial
-      r = Serial0.readStringUntil('\n');
-      // Serial.println(r);  // DEBUG: always show input data to Serial
-      if (nmeaFrameAnalysis(r)) {
+      size_t len = Serial0.readBytesUntil('\n', nmeaLineBuffer, buff_len - 1);
+      nmeaLineBuffer[len] = '\0';
+      // Serial.println(nmeaLineBuffer);  // DEBUG: always show input data to Serial
+      if (nmeaFrameAnalysis(nmeaLineBuffer)) {
         nmeaFrame = true;
         rtc.setTime(s, m, h, d, mm, 2000 + y);  // set local RTC
         rtcLastUpdate = millis();               // last RTC update
@@ -353,16 +328,20 @@ void TimingCode(void *pvParameters) {
 void TransmissionCode(void *pvParameters) {
 
   while (1) {
-    Device.Initialize(mark);
+    Device.SetFrequency(mark);  // (re)assert carrier; full register reload only needed once, in setup()
     if (timeState) {
-      // PLAY CW + Q65 + JT4 and again
+      // PLAY CW + Q65 and again
       do { delay(500); } while (rtc.getSecond() != 0);
-      if (rtc.getMinute() % 2 == 0) { // all even minutes, 0,2,4,6,8,...
+
+      // Snapshot minute/day/month together (one call) so a concurrent setTime()
+      // on core 0 can't hand us a torn mix of old/new fields.
+      tm now = rtc.getTimeStruct();
+
+      if (now.tm_min % 2 == 0) {  // all even minutes, 0,2,4,6,8,...
         q65_sendMessage();  // send Q65 message
-        // jt4_sendMessage(); // send JT4 message (to be selected by user)
         Device.SetFrequency(mark);
-      } else if (rtc.getMinute() % 2 == 1) { // all odd minutes 1,3,5,7,9,...
-        if (rtc.getDay() == 31 && rtc.getMonth() == 12) {
+      } else {  // all odd minutes 1,3,5,7,9,...
+        if (now.tm_mday == 31 && now.tm_mon == 11) {  // tm_mon is 0-11, so December == 11
           cw.sendMessage(cwPrefixHNY);
         }
         cw.sendMessage(cwTextWhenTimeIsValid);
