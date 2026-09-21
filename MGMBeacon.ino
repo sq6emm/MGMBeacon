@@ -37,6 +37,7 @@
 #include <ADF4157.h>
 #include <ESP32Time.h>
 #include "CWLibrary.hpp"
+#include <BeaconModes.h>
 
 TaskHandle_t Timing;
 TaskHandle_t Transmission;
@@ -72,8 +73,7 @@ ADF4157 Device(deviceUpdate);
 //#define carrier 1296805000.0  // SR6LEG 23cm
 //#define freqMulti 1  // SR6LEG 23cm
 //char cwTextWhenTimeIsValid[] = "SR6LEG SR6LEG LOC JO81CE JO81CE ";
-//const char jtmessage[] = "DE SR6LEG JO81";
-//const uint8_t q65_symbols[85] = { 0, 1, 1, 1, 1, 2, 40, 37, 0, 7, 55, 0, 0, 50, 0, 6, 5, 19, 51, 51, 51, 0, 0, 52, 39, 0, 0, 33, 18, 45, 13, 63, 0, 63, 0, 57, 57, 0, 47, 54, 50, 40, 57, 57, 62, 0, 6, 35, 35, 0, 62, 48, 25, 33, 0, 33, 33, 37, 37, 0, 30, 0, 21, 2, 38, 0, 9, 64, 0, 62, 61, 61, 49, 0, 49, 0, 46, 28, 19, 39, 17, 4, 4, 57, 0 }; // SR6LEG
+//const char wsjtmessage[] = "DE SR6LEG JO81";
 // SR6LEG
 
 // TEST
@@ -90,8 +90,7 @@ ADF4157 Device(deviceUpdate);
 //#define freqMulti 0.5  // SR6LB 1.2cm
 
 //char cwTextWhenTimeIsValid[] = "SR6LB SR6LB LOC JO70SS JO70SS ";
-//const char jtmessage[] = "DE SR6LB JO70";
-//const uint8_t q65_symbols[85] = { 0, 1, 1, 1, 1, 2, 40, 37, 0, 7, 44, 0, 0, 50, 0, 6, 2, 35, 48, 48, 48, 0, 0, 47, 45, 0, 0, 14, 61, 34, 2, 52, 0, 52, 0, 54, 54, 0, 18, 38, 34, 62, 35, 35, 40, 0, 32, 57, 57, 0, 13, 47, 26, 5, 0, 5, 5, 6, 6, 0, 61, 0, 41, 62, 26, 0, 3, 54, 0, 43, 28, 28, 24, 0, 24, 0, 11, 61, 54, 61, 24, 4, 4, 57, 0 };  // SR6LB
+//const char wsjtmessage[] = "DE SR6LB JO70";
 // SR6LB
 
 // SR3LES
@@ -103,8 +102,7 @@ ADF4157 Device(deviceUpdate);
 //#define freqMulti 4  // SR3LES 3cm
 
 char cwTextWhenTimeIsValid[] = "SR3LES SR3LES LOC JO81HU JO81HU ";
-const char jtmessage[] = "SR3LES JO81";
-const uint8_t q65_symbols[85] = { 0, 1, 1, 1, 1, 2, 40, 35, 0, 20, 36, 0, 0, 10, 0, 6, 5, 19, 10, 10, 10, 0, 0, 9, 26, 0, 0, 32, 23, 48, 16, 62, 0, 62, 0, 47, 47, 0, 57, 9, 31, 9, 48, 48, 43, 0, 50, 23, 23, 0, 45, 63, 10, 12, 0, 12, 12, 16, 16, 0, 43, 0, 57, 46, 16, 0, 61, 42, 0, 44, 43, 43, 17, 0, 17, 0, 14, 60, 39, 14, 47, 62, 62, 57, 0 };
+const char wsjtmessage[] = "DE SR3LES JO81";
 // SR3LES
 
 // END OF PER BEACON VARS
@@ -147,11 +145,9 @@ void cwKeyUp() {
 CWLibrary cw = CWLibrary(cwSpeedWPM, cwKeyDown, cwKeyUp);
 
 // Definitions related to Q65
-/* Q65-60D */
-const float DF = 13.3333334f / freqMulti;  // Hz (tone spacing)
-const uint32_t CENTER = mark + (DF * 32);  // Hz (midt-tone = symbol 32)
-const uint16_t SYMBOL_MS = 600;            // 0,600 s per symbol
-const uint32_t SLOT_MS = 59900UL;          // 60 s T/R-period
+// Encoded once in setup() from wsjtmessage via the BeaconModes library
+// (see q65_sendMessage()) instead of being a hardcoded table.
+uint8_t q65_symbols[Q65::SYMBOL_COUNT];
 
 // Custom Code Functions
 
@@ -251,20 +247,11 @@ void TimeStatus() {  // Time Status validation logic
   }
 }  // Time Status validation logic
 
-inline uint32_t q65_tone_hz(uint8_t s) {
-  // f = (CENTER − 32·Δf) + s·Δf
-  return (uint32_t)((double)CENTER - 32.0 * DF + (double)s * DF + 0.5);
-}
-
 void q65_sendMessage() {
-  // TBC ??? const uint32_t tx_ms = 85UL * SYMBOL_MS;  // ≈ 51 000 ms
-  // TBC ??? const uint32_t gap_ms = (SLOT_MS > tx_ms) ? (SLOT_MS - tx_ms) : 0;
-
-  // Send 85 symbols
-  for (uint8_t i = 0; i < 85; i++) {
-    uint32_t f = q65_tone_hz(q65_symbols[i]);
-    Device.SetFrequency((uint64_t)f);
-    delay(SYMBOL_MS);
+  const float spacing = BeaconModes::toneSpacingHz(BeaconMode::Q65, freqMulti);
+  for (uint16_t i = 0; i < Q65::SYMBOL_COUNT; i++) {
+    Device.SetFrequency(mark + q65_symbols[i] * spacing);
+    delay(Q65::SYMBOL_PERIOD_MS);
   }
 }
 
@@ -289,6 +276,10 @@ void setup() {
   // creation of the Task that will run our Transmission/Beacon related Code
   xTaskCreatePinnedToCore(TransmissionCode, "Transmission", 10000, NULL, 1, &Transmission, 1);
   delay(500);
+
+  if (!BeaconModes::encode(BeaconMode::Q65, wsjtmessage, q65_symbols)) {
+    Serial.println("Q65 encode of wsjtmessage FAILED -- check wsjtmessage format");
+  }
 
   Device.Initialize(mark);
 }
