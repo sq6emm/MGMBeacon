@@ -118,7 +118,7 @@ ADF4157 Device(deviceUpdate);
 
 #define CALLSIGN "SR3LES"
 #define LOCATOR  "JO81HU"
-const DigitalMode digitalMode = JT4Submode(JT4::Submode::G); // JT4G
+const DigitalMode digitalMode = PI4Submode(); // PI4
 // SR3LES
 
 // END OF PER BEACON VARS
