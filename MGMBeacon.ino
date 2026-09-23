@@ -275,7 +275,9 @@ bool nmeaFrameAnalysis(const char *frame) {  // NMEA Frame analysis
 
 void TimeStatus() {  // Time Status validation logic
   if (timeState) {   // we have valid input time from time source
-    if ((rtcLastUpdate + rtcLastUpdateTimeoutms) < millis()) {
+    // millis() is 32-bit and wraps every ~49.7 days: always compare elapsed
+    // time (now - then, which wraps correctly), never then + timeout < now.
+    if (millis() - rtcLastUpdate > rtcLastUpdateTimeoutms) {
       ledState(COLOR_RED);
       timeState = false;
     } else {
@@ -329,14 +331,9 @@ void setup() {
   pinMode(LED_BLUE, OUTPUT);
   ledState(COLOR_WHITE);
 
-  // creation of the Task that will run our Timing Related Code
-  xTaskCreatePinnedToCore(TimingCode, "Timing", 10000, NULL, 1, &Timing, 0);
-  delay(500);
-
-  // creation of the Task that will run our Transmission/Beacon related Code
-  xTaskCreatePinnedToCore(TransmissionCode, "Transmission", 10000, NULL, 1, &Transmission, 1);
-  delay(500);
-
+  // Everything TransmissionCode uses (messages, PLL) must be ready before its
+  // task starts -- it shares core 1 with setup(), so a CW key-down could
+  // otherwise interleave with Device.Initialize()'s register writes.
   buildMessages();  // derive cwTextWhenTimeIsValid/wsjtmessage/pi4Message/jt4Message from CALLSIGN+LOCATOR
 
   // Validate at boot that every mode this beacon might transmit can encode
@@ -355,6 +352,14 @@ void setup() {
   }
 
   Device.Initialize(mark);
+
+  // creation of the Task that will run our Timing Related Code
+  xTaskCreatePinnedToCore(TimingCode, "Timing", 10000, NULL, 1, &Timing, 0);
+  delay(500);
+
+  // creation of the Task that will run our Transmission/Beacon related Code
+  xTaskCreatePinnedToCore(TransmissionCode, "Transmission", 10000, NULL, 1, &Transmission, 1);
+  delay(500);
 }
 
 // Core 0 Loop (Timing)
@@ -374,10 +379,10 @@ void TimingCode(void *pvParameters) {
       }
       TimeStatus();
     } else {
-      if ((serialLastUpdate + serialLastUpdateTimeoutms) < millis()) {
+      if (millis() - serialLastUpdate > serialLastUpdateTimeoutms) {
         nmeaFrame = false;  // invalidate last frame from GPS
         TimeStatus();
-        if ((millis() - humanLastUpdateTimeoutms) > humanLastUpdate) {
+        if (millis() - humanLastUpdate > humanLastUpdateTimeoutms) {
           Serial.println("No serial data");
           if (timeState == true) { Serial.println(rtc.getTime("%Y-%m-%d %H:%M:%S")); };
           humanLastUpdate = millis();
@@ -392,7 +397,10 @@ void TimingCode(void *pvParameters) {
 void TransmissionCode(void *pvParameters) {
 
   while (1) {
-    Device.SetFrequency(mark);  // (re)assert carrier; full register reload only needed once, in setup()
+    // Reload all PLL registers every cycle, not just R0/R1 as SetFrequency()
+    // does, so a register corrupted by RF/ESD at the site self-heals within
+    // a minute instead of persisting until reboot.
+    Device.Initialize(mark);
     if (timeState) {
       // PLAY CW + Q65 and again
       tm now = waitForNextMinute();
