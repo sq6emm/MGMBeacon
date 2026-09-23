@@ -1,13 +1,17 @@
 /*
   MGM beacon code, based on Etherkit JTencode library and PI4Ino.
 
-  Beacon cycle:
-  
-  even minute JT4G (~48 secs ) + carrier (~12 secs)
-  odd minute CW WPM12 (15 secs) + carrier (~45 secs)
+  Beacon cycle (with valid time):
 
-  if no GPS time is detected in 60sec, beacon will transmit
-  NOTIME then standard CW WPM12 message
+  even minute: digitalMode (per beacon profile, e.g. Q65-60D ~51 secs,
+               JT4 ~47 secs, PI4 ~24 secs) + carrier for the rest
+  odd minute:  CW 12 WPM (~36 secs) + carrier for the rest
+               (prefixed with "HNY HNY" on 31 December)
+
+  Time comes from NMEA RMC frames (GPS or eCzasPL receiver) and is kept by
+  the ESP32 clock for up to 24 hrs after the last valid frame. Without
+  valid time (from boot until the first frame, or after those 24 hrs) the
+  beacon repeats NOTIME + CW message + ~20 secs carrier instead.
 
   Based on PI4Ino by Bo OZ2M, thanks!
 
@@ -28,7 +32,7 @@
   CLK - D13
   DATA - D11
   LE - D10
-  GPS RX - RX0
+  GPS/eCzasPL NMEA RX - RX0
 
   SR6LEG: JO81CE58CD
   SR6LB: JO70SS66UX
@@ -54,7 +58,7 @@ const TickType_t xDelay = (10 / portTICK_PERIOD_MS);
 // for, so there are no torn reads across the individual fields.
 ESP32Time rtc(0);  // with 0 seconds of offset meaning UTC time is used
 unsigned long rtcLastUpdate = 0;
-#define rtcLastUpdateTimeoutms 86400000  // 86400000 // How many seconds we consider the time in local RTC to be valid (24 hrs by default)
+#define rtcLastUpdateTimeoutms 86400000  // How long (ms) we consider the time in local RTC to be valid after the last frame (24 hrs by default)
 uint8_t h, m, s, d, mm, y, crc;
 bool timeState = false;
 
@@ -84,8 +88,8 @@ ADF4157 Device(deviceUpdate);
 // (Q65-120/300 are not). digitalMode options:
 //   Q65Submode(Q65::Duration::T15,  Q65::Bandwidth::A..E)  -- Q65-15A..15E
 //   Q65Submode(Q65::Duration::T30,  Q65::Bandwidth::A..E)  -- Q65-30A..30E
-//   Q65Submode(Q65::Duration::T60,  Q65::Bandwidth::A..E)  -- Q65-60A..60E  (this beacon's previous default: 60D)
-//   JT4Submode(JT4::Submode::A..G)                         -- JT4A..JT4G (this beacon's previous default: JT4G)
+//   Q65Submode(Q65::Duration::T60,  Q65::Bandwidth::A..E)  -- Q65-60A..60E
+//   JT4Submode(JT4::Submode::A..G)                         -- JT4A..JT4G
 //   PI4Submode()                                           -- PI4
 //   CWSubmode(wpm, spaceShiftHz)                            -- CW at a different speed/shift than cwSubmode below
 
@@ -391,7 +395,7 @@ void TimingCode(void *pvParameters) {
       TimeStatus();
     } else {
       if (millis() - serialLastUpdate > serialLastUpdateTimeoutms) {
-        nmeaFrame = false;  // invalidate last frame from GPS
+        nmeaFrame = false;  // invalidate last frame from the time source
         TimeStatus();
         if (millis() - humanLastUpdate > humanLastUpdateTimeoutms) {
           Serial.println("No serial data");
@@ -415,7 +419,7 @@ void TransmissionCode(void *pvParameters) {
     // a minute instead of persisting until reboot.
     Device.Initialize(mark);
     if (timeState) {
-      // PLAY CW + Q65 and again
+      // Even minute: digitalMode; odd minute: CW
       tm now = waitForNextMinute();
       esp_task_wdt_reset();
 
