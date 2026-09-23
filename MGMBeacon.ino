@@ -59,9 +59,10 @@ uint8_t h, m, s, d, mm, y, crc;
 bool timeState = false;
 
 // Reboot if TransmissionCode stops checking in. Must exceed the longest gap
-// between its esp_task_wdt_reset() calls: one transmission, at most Q65-300
-// (~294 s).
-#define watchdogTimeoutS 360
+// between its esp_task_wdt_reset() calls: one cycle, about a minute (the
+// longest digital mode is Q65-60, ~51 s; the NOTIME branch is ~62 s of
+// CW + carrier).
+#define watchdogTimeoutS 120
 
 // Initialize all vars related to ADF4157
 const byte deviceUpdate = D10;  // The Ardunio pin where the device update is controlled, if used
@@ -78,12 +79,12 @@ ADF4157 Device(deviceUpdate);
 // mode the even-minute slot transmits (digitalMode); every on-air message
 // (CW, Q65/wsjtmessage, PI4, JT4) is generated from CALLSIGN+LOCATOR at
 // boot by buildMessages() below, respecting each mode's own length/alphabet
-// limits, so there's one place to change per beacon. digitalMode options:
+// limits, so there's one place to change per beacon. The even-minute slot
+// is one minute, so only modes whose transmission fits in it are usable
+// (Q65-120/300 are not). digitalMode options:
 //   Q65Submode(Q65::Duration::T15,  Q65::Bandwidth::A..E)  -- Q65-15A..15E
 //   Q65Submode(Q65::Duration::T30,  Q65::Bandwidth::A..E)  -- Q65-30A..30E
 //   Q65Submode(Q65::Duration::T60,  Q65::Bandwidth::A..E)  -- Q65-60A..60E  (this beacon's previous default: 60D)
-//   Q65Submode(Q65::Duration::T120, Q65::Bandwidth::A..E)  -- Q65-120A..120E
-//   Q65Submode(Q65::Duration::T300, Q65::Bandwidth::A..E)  -- Q65-300A..300E
 //   JT4Submode(JT4::Submode::A..G)                         -- JT4A..JT4G (this beacon's previous default: JT4G)
 //   PI4Submode()                                           -- PI4
 //   CWSubmode(wpm, spaceShiftHz)                            -- CW at a different speed/shift than cwSubmode below
@@ -124,7 +125,7 @@ ADF4157 Device(deviceUpdate);
 
 #define CALLSIGN "SR3LES"
 #define LOCATOR  "JO81HU"
-const DigitalMode digitalMode = PI4Submode(); // PI4
+const DigitalMode digitalMode = Q65Submode(Q65::Duration::T60, Q65::Bandwidth::D); // Q65-60D
 // SR3LES
 
 // END OF PER BEACON VARS
