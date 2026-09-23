@@ -48,9 +48,9 @@ const TickType_t xDelay = (10 / portTICK_PERIOD_MS);
 // into) already guard cross-core atomicity internally, so no extra locking is
 // needed here -- wrapping them in our own portENTER_CRITICAL would (and did,
 // when tried) panic the board, since those calls can internally block/take a
-// lock, which is illegal inside a critical section. A single getTimeStruct()
-// snapshot per read (see TransmissionCode) is enough to avoid torn reads
-// across the individual minute/day/month fields.
+// lock, which is illegal inside a critical section. TransmissionCode derives
+// minute/day/month from the single epoch value waitForNextMinute() waited
+// for, so there are no torn reads across the individual fields.
 ESP32Time rtc(0);  // with 0 seconds of offset meaning UTC time is used
 unsigned long rtcLastUpdate = 0;
 #define rtcLastUpdateTimeoutms 86400000  // 86400000 // How many seconds we consider the time in local RTC to be valid (24 hrs by default)
@@ -292,6 +292,29 @@ void TimeStatus() {  // Time Status validation logic
   }
 }  // Time Status validation logic
 
+tm waitForNextMinute() {  // Block until the top of the next UTC minute, return that minute
+  // Digital modes must start at second 0 (decoders tolerate ~1s of DT), so wait
+  // on the system clock at 1ms resolution instead of polling getSecond().
+  // The clock is re-read every iteration because core 0 may step it
+  // (rtc.setTime()) while we wait.
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+  time_t nextMinute = (tv.tv_sec / 60 + 1) * 60;
+  int64_t targetUs = (int64_t)nextMinute * 1000000;
+  while (true) {
+    gettimeofday(&tv, NULL);
+    int64_t remainingUs = targetUs - ((int64_t)tv.tv_sec * 1000000 + tv.tv_usec);
+    if (remainingUs <= 0) break;
+    // Sleep most of the remaining time in one go (capped, to notice clock
+    // steps), then finish in 1ms steps.
+    uint32_t sleepMs = (remainingUs > 2000) ? min<int64_t>(remainingUs / 1000 - 1, 500) : 1;
+    vTaskDelay(pdMS_TO_TICKS(sleepMs));
+  }
+  tm now;
+  gmtime_r(&nextMinute, &now);
+  return now;
+}  // Block until the top of the next UTC minute, return that minute
+
 // END of Custom Code Functions
 
 void setup() {
@@ -372,11 +395,7 @@ void TransmissionCode(void *pvParameters) {
     Device.SetFrequency(mark);  // (re)assert carrier; full register reload only needed once, in setup()
     if (timeState) {
       // PLAY CW + Q65 and again
-      do { delay(500); } while (rtc.getSecond() != 0);
-
-      // Snapshot minute/day/month together (one call) so a concurrent setTime()
-      // on core 0 can't hand us a torn mix of old/new fields.
-      tm now = rtc.getTimeStruct();
+      tm now = waitForNextMinute();
 
       if (now.tm_min % 2 == 0) {  // all even minutes, 0,2,4,6,8,...
         // Which mode this transmits is decided once, per beacon profile,
