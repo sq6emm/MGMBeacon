@@ -37,6 +37,7 @@
 #include <ADF4157.h>
 #include <ESP32Time.h>
 #include <BeaconModes.h>
+#include <esp_task_wdt.h>
 
 TaskHandle_t Timing;
 TaskHandle_t Transmission;
@@ -56,6 +57,11 @@ unsigned long rtcLastUpdate = 0;
 #define rtcLastUpdateTimeoutms 86400000  // 86400000 // How many seconds we consider the time in local RTC to be valid (24 hrs by default)
 uint8_t h, m, s, d, mm, y, crc;
 bool timeState = false;
+
+// Reboot if TransmissionCode stops checking in. Must exceed the longest gap
+// between its esp_task_wdt_reset() calls: one transmission, at most Q65-300
+// (~294 s).
+#define watchdogTimeoutS 360
 
 // Initialize all vars related to ADF4157
 const byte deviceUpdate = D10;  // The Ardunio pin where the device update is controlled, if used
@@ -353,6 +359,10 @@ void setup() {
 
   Device.Initialize(mark);
 
+  // Reconfigures the core's default 5 s task watchdog (which also keeps
+  // watching core 0's idle task, now with this longer timeout).
+  esp_task_wdt_init(watchdogTimeoutS, true);
+
   // creation of the Task that will run our Timing Related Code
   xTaskCreatePinnedToCore(TimingCode, "Timing", 10000, NULL, 1, &Timing, 0);
   delay(500);
@@ -395,8 +405,10 @@ void TimingCode(void *pvParameters) {
 
 // Core 1 Loop (Transmission)
 void TransmissionCode(void *pvParameters) {
+  esp_task_wdt_add(NULL);
 
   while (1) {
+    esp_task_wdt_reset();
     // Reload all PLL registers every cycle, not just R0/R1 as SetFrequency()
     // does, so a register corrupted by RF/ESD at the site self-heals within
     // a minute instead of persisting until reboot.
@@ -404,6 +416,7 @@ void TransmissionCode(void *pvParameters) {
     if (timeState) {
       // PLAY CW + Q65 and again
       tm now = waitForNextMinute();
+      esp_task_wdt_reset();
 
       if (now.tm_min % 2 == 0) {  // all even minutes, 0,2,4,6,8,...
         // Which mode this transmits is decided once, per beacon profile,
