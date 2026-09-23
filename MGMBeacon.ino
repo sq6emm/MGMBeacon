@@ -57,10 +57,10 @@ const TickType_t xDelay = (10 / portTICK_PERIOD_MS);
 // minute/day/month from the single epoch value waitForNextMinute() waited
 // for, so there are no torn reads across the individual fields.
 ESP32Time rtc(0);  // with 0 seconds of offset meaning UTC time is used
-unsigned long rtcLastUpdate = 0;
+unsigned long rtcLastUpdate = 0;  // millis() of the last valid frame; only meaningful once synced
+bool synced = false;              // set by the first valid frame since boot
 #define rtcLastUpdateTimeoutms 86400000  // How long (ms) we consider the time in local RTC to be valid after the last frame (24 hrs by default)
 uint8_t h, m, s, d, mm, y, crc;
-bool timeState = false;
 
 // Reboot if TransmissionCode stops checking in. Must exceed the longest gap
 // between its esp_task_wdt_reset() calls: one cycle, about a minute (the
@@ -178,11 +178,11 @@ char cwPrefixHNY[] = "HNY HNY ";
 // Initialize vars related to NMEA sentence analysis
 const byte buff_len = 90;
 char nmeaLineBuffer[buff_len];
-bool nmeaFrame = false;
 
 // Initialize vars related to communication with GPS or eCzasPL rx
 unsigned long serialLastUpdate = 0;
 #define serialLastUpdateTimeoutms 2000  // Time after which we decide that there is no data on Serial port from Timing device
+#define frameFreshTimeoutms 3000  // Status LED stays green while valid frames (1/s) keep arriving; tolerates one missed frame
 
 // Generic vars related to communication with user
 unsigned long humanLastUpdate = 0;
@@ -284,26 +284,26 @@ bool nmeaFrameAnalysis(const char *frame) {  // NMEA Frame analysis
   return false;
 }  // NMEA Frame analysis
 
-void TimeStatus() {  // Time Status validation logic
-  if (timeState) {   // we have valid input time from time source
-    // millis() is 32-bit and wraps every ~49.7 days: always compare elapsed
-    // time (now - then, which wraps correctly), never then + timeout < now.
-    if (millis() - rtcLastUpdate > rtcLastUpdateTimeoutms) {
-      ledState(COLOR_RED);
-      timeState = false;
-    } else {
-      if (!nmeaFrame) {
-        ledState(COLOR_BLUE);
-        // timeState true
-      }
-    }
-  } else {           // last Time status was negative
-    if (nmeaFrame) {  // we have valid input time from time source
-      ledState(COLOR_GREEN);
-      timeState = true;
-    }
+// The one answer to "can the ESP32 clock be trusted for timed transmissions":
+// a valid frame has arrived since boot, and the last one is under 24 hrs old.
+// millis() is 32-bit and wraps every ~49.7 days: always compare elapsed time
+// (now - then, which wraps correctly), never then + timeout < now.
+bool timeValid() {
+  return synced && millis() - rtcLastUpdate < rtcLastUpdateTimeoutms;
+}
+
+void updateStatusLed() {  // white: never synced, green: frames arriving, blue: holdover, red: expired
+  static uint8_t shown = 0xFF;
+  uint8_t color;
+  if (!synced) color = COLOR_WHITE;
+  else if (!timeValid()) color = COLOR_RED;
+  else if (millis() - rtcLastUpdate <= frameFreshTimeoutms) color = COLOR_GREEN;
+  else color = COLOR_BLUE;
+  if (color != shown) {
+    ledState(color);
+    shown = color;
   }
-}  // Time Status validation logic
+}
 
 tm waitForNextMinute() {  // Block until the top of the next UTC minute, return that minute
   // Digital modes must start at second 0 (decoders tolerate ~1s of DT), so wait
@@ -387,23 +387,21 @@ void TimingCode(void *pvParameters) {
       nmeaLineBuffer[len] = '\0';
       // Serial.println(nmeaLineBuffer);  // DEBUG: always show input data to Serial
       if (nmeaFrameAnalysis(nmeaLineBuffer)) {
-        nmeaFrame = true;
         rtc.setTime(s, m, h, d, mm, 2000 + y);  // set local RTC
         rtcLastUpdate = millis();               // last RTC update
+        synced = true;
         Serial.println(rtc.getTime("%Y-%m-%d %H:%M:%S"));
       }
-      TimeStatus();
     } else {
       if (millis() - serialLastUpdate > serialLastUpdateTimeoutms) {
-        nmeaFrame = false;  // invalidate last frame from the time source
-        TimeStatus();
         if (millis() - humanLastUpdate > humanLastUpdateTimeoutms) {
           Serial.println("No serial data");
-          if (timeState == true) { Serial.println(rtc.getTime("%Y-%m-%d %H:%M:%S")); };
+          if (timeValid()) { Serial.println(rtc.getTime("%Y-%m-%d %H:%M:%S")); };
           humanLastUpdate = millis();
         }
       }
     }
+    updateStatusLed();
     vTaskDelay(xDelay);  // END OF EXECUTION THREAD
   }
 }
@@ -418,7 +416,7 @@ void TransmissionCode(void *pvParameters) {
     // does, so a register corrupted by RF/ESD at the site self-heals within
     // a minute instead of persisting until reboot.
     Device.Initialize(mark);
-    if (timeState) {
+    if (timeValid()) {
       // Even minute: digitalMode; odd minute: CW
       tm now = waitForNextMinute();
       esp_task_wdt_reset();
