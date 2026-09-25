@@ -207,6 +207,46 @@ void deviceSetFrequency(double freqHz) {
   Device.SetFrequency(freqHz);
 }
 
+// One USB-serial line at the start and end of every transmission slot, so a
+// log shows what was sent and when, and a missing "TX start" line (one per
+// ~minute) shows the transmission task has stalled. Each line is a single
+// printf, so it doesn't interleave with lines printed from core 0.
+const char *txWhat;         // what the current slot sends
+unsigned long txStartMs;    // millis() at its start
+
+void txTimestamp(char *buf, size_t len) {  // "HH:MM:SS.mmm" from the system clock
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+  tm t;
+  gmtime_r(&tv.tv_sec, &t);
+  snprintf(buf, len, "%02d:%02d:%02d.%03ld", t.tm_hour, t.tm_min, t.tm_sec, (long)(tv.tv_usec / 1000));
+}
+
+void txBegin(const char *what) {
+  char ts[16];
+  txWhat = what;
+  txStartMs = millis();
+  txTimestamp(ts, sizeof ts);
+  if (Serial) Serial.printf("TX start %s at %s\r\n", what, ts);
+}
+
+void txEnd(bool ok) {
+  char ts[16];
+  txTimestamp(ts, sizeof ts);
+  if (Serial) Serial.printf("TX end %s at %s, %.1f s%s\r\n", txWhat, ts,
+                            (millis() - txStartMs) / 1000.0, ok ? "" : ", NOT SENT (encode failed)");
+}
+
+const char *modeName(BeaconMode mode) {
+  switch (mode) {
+    case BeaconMode::CW: return "CW";
+    case BeaconMode::Q65: return "Q65";
+    case BeaconMode::PI4: return "PI4";
+    case BeaconMode::JT4: return "JT4";
+  }
+  return "?";
+}
+
 void ledState(uint8_t state) {  // set Color of the state Led
   digitalWrite(LED_BLUE, ((~state & 0x04) >> 2));
   digitalWrite(LED_GREEN, ((~state & 0x02) >> 1));
@@ -424,20 +464,26 @@ void TransmissionCode(void *pvParameters) {
       if (now.tm_min % 2 == 0) {  // all even minutes, 0,2,4,6,8,...
         // Which mode this transmits is decided once, per beacon profile,
         // by digitalMode (see the PER BEACON VARS section above).
-        BeaconModes::transmit(digitalMode, messageForDigitalMode(), mark, freqMulti, deviceSetFrequency);
+        txBegin(modeName(digitalMode.mode));
+        bool ok = BeaconModes::transmit(digitalMode, messageForDigitalMode(), mark, freqMulti, deviceSetFrequency);
         Device.SetFrequency(mark);
+        txEnd(ok);
       } else {  // all odd minutes 1,3,5,7,9,...
+        txBegin("CW");
         if (now.tm_mday == 31 && now.tm_mon == 11) {  // tm_mon is 0-11, so December == 11
           BeaconModes::transmit(BeaconMode::CW, cwPrefixHNY, mark, freqMulti, deviceSetFrequency, {}, {}, cwSubmode);
         }
         BeaconModes::transmit(BeaconMode::CW, cwTextWhenTimeIsValid, mark, freqMulti, deviceSetFrequency, {}, {}, cwSubmode);
         Device.SetFrequency(mark);
+        txEnd(true);
       }
     } else {
       // PLAY CW only
+      txBegin("CW NOTIME");
       BeaconModes::transmit(BeaconMode::CW, cwPrefixWhenNoTime, mark, freqMulti, deviceSetFrequency, {}, {}, cwSubmode);
       BeaconModes::transmit(BeaconMode::CW, cwTextWhenTimeIsValid, mark, freqMulti, deviceSetFrequency, {}, {}, cwSubmode);
       Device.SetFrequency(mark);
+      txEnd(true);
       delay(20000);  // give at least 20secs of carrier
     }
     vTaskDelay(xDelay);  // END OF EXECUTION THREAD
