@@ -207,6 +207,25 @@ void deviceSetFrequency(double freqHz) {
   Device.SetFrequency(freqHz);
 }
 
+// Every USB-serial line goes through usbLog(). The ESP32 core's
+// USBCDC::write() busy-waits, with no timeout, for buffer space while a host
+// holds the port open (DTR set) but isn't draining it fast enough; a line is
+// therefore sent only if the whole line fits into the USB buffer right now,
+// and dropped otherwise, so a slow or stuck serial monitor can never hold up
+// the timing or transmission tasks.
+void usbLog(const char *fmt, ...) {
+  char buf[300];
+  va_list ap;
+  va_start(ap, fmt);
+  int n = vsnprintf(buf, sizeof buf - 2, fmt, ap);
+  va_end(ap);
+  if (n < 0) return;
+  if (n > (int)sizeof buf - 3) n = sizeof buf - 3;
+  buf[n++] = '\r';
+  buf[n++] = '\n';
+  if (Serial && Serial.availableForWrite() >= n) Serial.write((const uint8_t *)buf, n);
+}
+
 // One USB-serial line at the start and end of every transmission slot, so a
 // log shows what was sent and when, and a missing "TX start" line (one per
 // ~minute) shows the transmission task has stalled. Each line is a single
@@ -227,14 +246,14 @@ void txBegin(const char *what) {
   txWhat = what;
   txStartMs = millis();
   txTimestamp(ts, sizeof ts);
-  if (Serial) Serial.printf("TX start %s at %s\r\n", what, ts);
+  usbLog("TX start %s at %s", what, ts);
 }
 
 void txEnd(bool ok) {
   char ts[16];
   txTimestamp(ts, sizeof ts);
-  if (Serial) Serial.printf("TX end %s at %s, %.1f s%s\r\n", txWhat, ts,
-                            (millis() - txStartMs) / 1000.0, ok ? "" : ", NOT SENT (encode failed)");
+  usbLog("TX end %s at %s, %.1f s%s", txWhat, ts,
+         (millis() - txStartMs) / 1000.0, ok ? "" : ", NOT SENT (encode failed)");
 }
 
 const char *modeName(BeaconMode mode) {
@@ -373,6 +392,7 @@ tm waitForNextMinute() {  // Block until the top of the next UTC minute, return 
 void setup() {
   // Initialize Serial ports for comminication and time source
   Serial.begin(115200);
+  Serial.setTxTimeoutMs(0);  // usbLog() must never wait for the USB lock
   Serial0.begin(nmeaBaudrate);
 
   // Initialize RGB LED for status updates
@@ -393,13 +413,13 @@ void setup() {
   // loudly, here.
   uint8_t scratch[BeaconModes::MAX_SYMBOLS];
   if (!BeaconModes::encode(BeaconMode::Q65, wsjtmessage, scratch)) {
-    Serial.println("Q65 encode of wsjtmessage FAILED -- check wsjtmessage format");
+    usbLog("Q65 encode of wsjtmessage FAILED -- check wsjtmessage format");
   }
   if (!BeaconModes::encode(BeaconMode::PI4, pi4Message, scratch)) {
-    Serial.println("PI4 encode of pi4Message FAILED -- check pi4Message format");
+    usbLog("PI4 encode of pi4Message FAILED -- check pi4Message format");
   }
   if (!BeaconModes::encode(BeaconMode::JT4, jt4Message, scratch)) {
-    Serial.println("JT4 encode of jt4Message FAILED -- check jt4Message format");
+    usbLog("JT4 encode of jt4Message FAILED -- check jt4Message format");
   }
 
   Device.Initialize(mark);
@@ -425,18 +445,18 @@ void TimingCode(void *pvParameters) {
       serialLastUpdate = millis();  // last incoming data from Serial
       size_t len = Serial0.readBytesUntil('\n', nmeaLineBuffer, buff_len - 1);
       nmeaLineBuffer[len] = '\0';
-      // Serial.println(nmeaLineBuffer);  // DEBUG: always show input data to Serial
+      // usbLog("%s", nmeaLineBuffer);  // DEBUG: always show input data to Serial
       if (nmeaFrameAnalysis(nmeaLineBuffer)) {
         rtc.setTime(s, m, h, d, mm, 2000 + y);  // set local RTC
         rtcLastUpdate = millis();               // last RTC update
         synced = true;
-        Serial.println(rtc.getTime("%Y-%m-%d %H:%M:%S"));
+        usbLog("%s", rtc.getTime("%Y-%m-%d %H:%M:%S").c_str());
       }
     } else {
       if (millis() - serialLastUpdate > serialLastUpdateTimeoutms) {
         if (millis() - humanLastUpdate > humanLastUpdateTimeoutms) {
-          Serial.println("No serial data");
-          if (timeValid()) { Serial.println(rtc.getTime("%Y-%m-%d %H:%M:%S")); };
+          usbLog("No serial data");
+          if (timeValid()) { usbLog("%s", rtc.getTime("%Y-%m-%d %H:%M:%S").c_str()); };
           humanLastUpdate = millis();
         }
       }
