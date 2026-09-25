@@ -243,8 +243,7 @@ void usbLog(const char *fmt, ...) {
 
 // One USB-serial line at the start and end of every transmission slot, so a
 // log shows what was sent and when, and a missing "TX start" line (one per
-// ~minute) shows the transmission task has stalled. Each line is a single
-// printf, so it doesn't interleave with lines printed from core 0.
+// ~minute) shows the transmission task has stalled.
 const char *txWhat;         // what the current slot sends
 unsigned long txStartMs;    // millis() at its start
 
