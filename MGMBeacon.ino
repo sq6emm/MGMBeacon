@@ -209,21 +209,36 @@ void deviceSetFrequency(double freqHz) {
 
 // Every USB-serial line goes through usbLog(). The ESP32 core's
 // USBCDC::write() busy-waits, with no timeout, for buffer space while a host
-// holds the port open (DTR set) but isn't draining it fast enough; a line is
-// therefore sent only if the whole line fits into the USB buffer right now,
-// and dropped otherwise, so a slow or stuck serial monitor can never hold up
-// the timing or transmission tasks.
+// holds the port open (DTR set) but isn't draining it fast enough. usbLog()
+// instead hands the line over in pieces that fit the (64-byte) USB buffer
+// right now and gives up on the rest after usbLogMaxWaitMs, so a slow or
+// stuck serial monitor can never hold up the timing or transmission tasks.
+// A mutex keeps lines from the two cores from interleaving.
+#define usbLogMaxWaitMs 20
+SemaphoreHandle_t usbLogLock;
+
 void usbLog(const char *fmt, ...) {
   char buf[300];
   va_list ap;
   va_start(ap, fmt);
   int n = vsnprintf(buf, sizeof buf - 2, fmt, ap);
   va_end(ap);
-  if (n < 0) return;
+  if (n < 0 || !Serial || usbLogLock == NULL) return;
   if (n > (int)sizeof buf - 3) n = sizeof buf - 3;
   buf[n++] = '\r';
   buf[n++] = '\n';
-  if (Serial && Serial.availableForWrite() >= n) Serial.write((const uint8_t *)buf, n);
+  if (xSemaphoreTake(usbLogLock, pdMS_TO_TICKS(usbLogMaxWaitMs)) != pdTRUE) return;
+  unsigned long t0 = millis();
+  int off = 0;
+  while (off < n && millis() - t0 <= usbLogMaxWaitMs) {
+    int space = Serial.availableForWrite();
+    if (space > 0) {
+      off += Serial.write((const uint8_t *)buf + off, min(space, n - off));
+    } else {
+      vTaskDelay(1);
+    }
+  }
+  xSemaphoreGive(usbLogLock);
 }
 
 // One USB-serial line at the start and end of every transmission slot, so a
@@ -393,6 +408,7 @@ void setup() {
   // Initialize Serial ports for comminication and time source
   Serial.begin(115200);
   Serial.setTxTimeoutMs(0);  // usbLog() must never wait for the USB lock
+  usbLogLock = xSemaphoreCreateMutex();
   Serial0.begin(nmeaBaudrate);
 
   // Initialize RGB LED for status updates
