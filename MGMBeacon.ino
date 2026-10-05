@@ -499,6 +499,9 @@ void TransmissionCode(void *pvParameters) {
       if (now.tm_min % 2 == 0) {  // all even minutes, 0,2,4,6,8,...
         // Which mode this transmits is decided once, per beacon profile,
         // by digitalMode (see the PER BEACON VARS section above).
+        // Start where WSJT-X itself would (e.g. 1.0 s into the minute for
+        // Q65-60), so receivers decode us at DT = 0 rather than DT = -1.
+        delay(BeaconModes::startOffsetMs(digitalMode));
         txBegin(modeName(digitalMode.mode));
         bool ok = BeaconModes::transmit(digitalMode, messageForDigitalMode(), mark, freqMulti, deviceSetFrequency);
         Device.SetFrequency(mark);
